@@ -1,9 +1,11 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -67,17 +69,46 @@ func PodHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	var tlsConf *tls.Config
+	keyPair, err := tls.LoadX509KeyPair("certs/regcred-injector-crt.pem", "certs/regcred-injector-key.pem")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	serverName, found := os.LookupEnv("SERVER_NAME")
+	if !found {
+		log.Fatal("Unable to read SERVER_NAME environment variable")
+	}
+	tlsConf = &tls.Config{
+		Certificates:             []tls.Certificate{keyPair},
+		ServerName:               serverName,
+		MinVersion:               tls.VersionTLS12,
+		CurvePreferences:         []tls.CurveID{tls.CurveP521, tls.CurveP384, tls.CurveP256},
+		PreferServerCipherSuites: true,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
+			tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_RSA_WITH_AES_256_CBC_SHA,
+		},
+	}
+
+	log.Printf("%v+", tlsConf)
+
 	r := mux.NewRouter()
 	r.HandleFunc("/admission", PodHandler)
 	r.HandleFunc("/status", StatusHandler)
 	http.Handle("/", r)
 
 	srv := &http.Server{
+
 		Handler:      r,
-		Addr:         "127.0.0.1:8443",
+		Addr:         "0.0.0.0:8443",
+		TLSConfig:    tlsConf,
+		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
 		WriteTimeout: 15 * time.Second,
 		ReadTimeout:  15 * time.Second,
 	}
 
-	log.Fatal(srv.ListenAndServe())
+	log.Fatal(srv.ListenAndServeTLS("certs/regcred-injector-crt.pem", "certs/regcred-injector-key.pem"))
 }
