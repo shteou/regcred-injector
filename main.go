@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	admission "k8s.io/api/admission/v1beta1"
 )
@@ -98,11 +99,12 @@ func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/admission", PodHandler)
 	r.HandleFunc("/status", StatusHandler)
+	loggingHandler := handlers.LoggingHandler(os.Stdout, r)
+
 	http.Handle("/", r)
 
 	srv := &http.Server{
-
-		Handler:      r,
+		Handler:      loggingHandler,
 		Addr:         "0.0.0.0:8443",
 		TLSConfig:    tlsConf,
 		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
