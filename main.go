@@ -1,156 +1,19 @@
 package main
 
 import (
-	"context"
 	"crypto/tls"
-	"encoding/base64"
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
 	"time"
 
-	"github.com/gorilla/handlers"
+	ghandlers "github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
-	admission "k8s.io/api/admission/v1beta1"
-	apiv1 "k8s.io/api/core/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+
+	"github.com/shteou/regcred-injector/handlers"
 )
-
-var clientset *kubernetes.Clientset
-var dockerUsername string
-var dockerPassword string
-
-func StatusHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
-}
-
-func extractReview(r *http.Request) (admission.AdmissionReview, error) {
-	var rev admission.AdmissionReview
-
-	err := json.NewDecoder(r.Body).Decode(&rev)
-	if err != nil {
-		return rev, err
-	}
-
-	return rev, nil
-}
-
-type RegCredPatchSpec struct {
-	Op    string              `json:"op"`
-	Path  string              `json:"path"`
-	Value []map[string]string `json:"value"`
-}
-
-type DockerAuth struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Auth     string `json:"auth"`
-}
-
-type DockerConfig struct {
-	Auths map[string]DockerAuth `json:"auths":`
-}
-
-func createSecret(namespace string) error {
-	secrets, err := clientset.CoreV1().Secrets(namespace).List(context.TODO(), v1.ListOptions{})
-	if err != nil {
-		return err
-	}
-
-	hasSecret := false
-	log.Printf("Found %v secrets", len(secrets.Items))
-	for i := 0; i < len(secrets.Items); i++ {
-		if secrets.Items[i].ObjectMeta.Name == "regcred" {
-			hasSecret = true
-		}
-	}
-
-	if hasSecret == false {
-		secret := apiv1.Secret{}
-		secret.Type = "kubernetes.io/dockerconfigjson"
-		secret.Name = "regcred"
-		secret.Data = make(map[string][]byte)
-		dockerConfig := DockerConfig{}
-		dockerConfig.Auths = make(map[string]DockerAuth)
-		dockerAuth := DockerAuth{}
-		dockerAuth.Username = dockerUsername
-		dockerAuth.Password = dockerPassword
-		dockerAuth.Auth = base64.StdEncoding.EncodeToString([]byte(dockerUsername + ":" + dockerPassword))
-		dockerConfig.Auths["https://index.docker.io/v1/"] = dockerAuth
-
-		dockerConfigJSON, err := json.Marshal(dockerConfig)
-		if err != nil {
-			return err
-		}
-
-		secret.Data[".dockerconfigjson"] = []byte(dockerConfigJSON)
-		_, err = clientset.CoreV1().Secrets(namespace).Create(context.TODO(), &secret, v1.CreateOptions{})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func PodHandler(w http.ResponseWriter, r *http.Request) {
-	req, err := extractReview(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	podObject, err := req.Request.Object.MarshalJSON()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var pod apiv1.Pod
-	json.Unmarshal(podObject, &pod)
-
-	err = createSecret(pod.ObjectMeta.Namespace)
-	if err != nil {
-		log.Printf("Encountered an error creating the secret: %s", err.Error())
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	responseReview := admission.AdmissionReview{}
-
-	responseReview.Kind = "AdmissionReview"
-	responseReview.APIVersion = "admission.k8s.io/v1beta1"
-
-	responseReview.Response = &admission.AdmissionResponse{}
-	responseReview.Response.UID = req.Request.UID
-	responseReview.Response.Allowed = true
-	patchType := admission.PatchTypeJSONPatch
-	responseReview.Response.PatchType = &patchType
-
-	patchResponse := make([]RegCredPatchSpec, 1)
-	patchResponse[0].Op = "add"
-	patchResponse[0].Path = "/spec/imagePullSecrets"
-	patchResponse[0].Value = append(patchResponse[0].Value, make(map[string]string, 1))
-	firstCred := patchResponse[0].Value[0]
-	firstCred["name"] = "regcred"
-
-	responseReview.Response.Patch, err = json.Marshal(&patchResponse)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	responseBytes, err := json.Marshal(responseReview)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write(responseBytes)
-}
 
 func main() {
 	var tlsConf *tls.Config
@@ -159,15 +22,25 @@ func main() {
 		log.Fatal(err)
 	}
 
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		log.Fatal(err)
+	}
+	handlers.Clientset, err = kubernetes.NewForConfig(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	serverName, found := os.LookupEnv("SERVER_NAME")
 	if !found {
 		log.Fatal("Unable to read SERVER_NAME environment variable")
 	}
-	dockerUsername, found = os.LookupEnv("DOCKER_USERNAME")
+
+	handlers.DockerUsername, found = os.LookupEnv("DOCKER_USERNAME")
 	if !found {
 		log.Fatal("Unable to read DOCKER_USERNAME environment variable")
 	}
-	dockerPassword, found = os.LookupEnv("DOCKER_PASSWORD")
+	handlers.DockerPassword, found = os.LookupEnv("DOCKER_PASSWORD")
 	if !found {
 		log.Fatal("Unable to read DOCKER_PASSWORD environment variable")
 	}
@@ -186,12 +59,10 @@ func main() {
 		},
 	}
 
-	log.Printf("%v+", tlsConf)
-
 	r := mux.NewRouter()
-	r.HandleFunc("/admission", PodHandler)
-	r.HandleFunc("/status", StatusHandler)
-	loggingHandler := handlers.LoggingHandler(os.Stdout, r)
+	r.HandleFunc("/admission", handlers.PodHandler)
+	r.HandleFunc("/status", handlers.StatusHandler)
+	loggingHandler := ghandlers.LoggingHandler(os.Stdout, r)
 
 	http.Handle("/", r)
 
