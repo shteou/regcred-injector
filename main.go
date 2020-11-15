@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -11,7 +13,14 @@ import (
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	admission "k8s.io/api/admission/v1beta1"
+	apiv1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 )
+
+var clientset *kubernetes.Clientset
+var dockerUsername string
+var dockerPassword string
 
 func StatusHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
@@ -32,6 +41,57 @@ type RegCredPatchSpec struct {
 	Op    string              `json:"op"`
 	Path  string              `json:"path"`
 	Value []map[string]string `json:"value"`
+}
+
+type DockerAuth struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Auth     string `json:"auth"`
+}
+
+type DockerConfig struct {
+	Auths map[string]DockerAuth `json:"auths":`
+}
+
+func createSecret(namespace string) error {
+	secrets, err := clientset.CoreV1().Secrets(namespace).List(context.TODO(), v1.ListOptions{})
+	if err != nil {
+		return err
+	}
+
+	hasSecret := false
+	log.Printf("Found %v secrets", len(secrets.Items))
+	for i := 0; i < len(secrets.Items); i++ {
+		if secrets.Items[i].ObjectMeta.Name == "regcred" {
+			hasSecret = true
+		}
+	}
+
+	if hasSecret == false {
+		secret := apiv1.Secret{}
+		secret.Type = "kubernetes.io/dockerconfigjson"
+		secret.Name = "regcred"
+		secret.Data = make(map[string][]byte)
+		dockerConfig := DockerConfig{}
+		dockerConfig.Auths = make(map[string]DockerAuth)
+		dockerAuth := DockerAuth{}
+		dockerAuth.Username = dockerUsername
+		dockerAuth.Password = dockerPassword
+		dockerAuth.Auth = base64.StdEncoding.EncodeToString([]byte(dockerUsername + ":" + dockerPassword))
+		dockerConfig.Auths["https://index.docker.io/v1/"] = dockerAuth
+
+		dockerConfigJSON, err := json.Marshal(dockerConfig)
+		if err != nil {
+			return err
+		}
+
+		secret.Data[".dockerconfigjson"] = []byte(dockerConfigJSON)
+		_, err = clientset.CoreV1().Secrets(namespace).Create(context.TODO(), &secret, v1.CreateOptions{})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func PodHandler(w http.ResponseWriter, r *http.Request) {
@@ -87,6 +147,15 @@ func main() {
 	if !found {
 		log.Fatal("Unable to read SERVER_NAME environment variable")
 	}
+	dockerUsername, found = os.LookupEnv("DOCKER_USERNAME")
+	if !found {
+		log.Fatal("Unable to read DOCKER_USERNAME environment variable")
+	}
+	dockerPassword, found = os.LookupEnv("DOCKER_PASSWORD")
+	if !found {
+		log.Fatal("Unable to read DOCKER_PASSWORD environment variable")
+	}
+
 	tlsConf = &tls.Config{
 		Certificates:             []tls.Certificate{keyPair},
 		ServerName:               serverName,
