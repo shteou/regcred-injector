@@ -45,6 +45,13 @@ spec:
           env:
             - name: SERVER_NAME
               value: {{ include "regcred-injector.fullname" . }}.{{ .Release.Namespace }}.svc.local
+            - name: DOCKER_USERNAME
+              value: {{ .Values.docker.username }}
+            - name: DOCKER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "regcred-injector.fullname" .}}
+                  key: password
           ports:
             - name: http
               containerPort: 8443
