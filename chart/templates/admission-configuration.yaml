@@ -1,0 +1,27 @@
+apiVersion: admissionregistration.k8s.io/v1beta1
+kind: MutatingWebhookConfiguration
+metadata:
+    name:  {{ include "regcred-injector.fullname" . }}
+webhooks:
+- name: {{ include "regcred-injector.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  matchPolicy: Equivalent
+  objectSelector:
+    matchExpressions:
+    - key: "app.kubernetes.io/component"
+      operator: NotIn
+      values: ["regcred-injector"]
+  rules:
+  - operations: ["CREATE"]
+    apiGroups: [""]
+    apiVersions: ["v1"]
+    resources: ["pods"]
+    scope: "Namespaced"
+  clientConfig:
+    service:
+      namespace: "{{ .Release.Namespace }}"
+      name: "{{ include "regcred-injector.fullname" . }}"
+      path: "/admission"
+      port: 8443
+    caBundle: "{{ .Values.cert | b64enc }}"
+  admissionReviewVersions: ["v1beta1"]
+  failurePolicy: Ignore
