@@ -8,7 +8,7 @@ image:
   repository: shteou/regcred-injector
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "0.1.7"
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
