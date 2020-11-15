@@ -101,6 +101,22 @@ func PodHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	podObject, err := req.Request.Object.MarshalJSON()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var pod apiv1.Pod
+	json.Unmarshal(podObject, &pod)
+
+	err = createSecret(pod.ObjectMeta.Namespace)
+	if err != nil {
+		log.Printf("Encountered an error creating the secret: %s", err.Error())
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	responseReview := admission.AdmissionReview{}
 
 	responseReview.Kind = "AdmissionReview"
