@@ -28,6 +28,12 @@ func extractReview(r *http.Request) (admission.AdmissionReview, error) {
 	return rev, nil
 }
 
+type RegCredPatchSpec struct {
+	Op    string              `json:"op"`
+	Path  string              `json:"path"`
+	Value []map[string]string `json:"value"`
+}
+
 func PodHandler(w http.ResponseWriter, r *http.Request) {
 	req, err := extractReview(r)
 	if err != nil {
@@ -46,11 +52,12 @@ func PodHandler(w http.ResponseWriter, r *http.Request) {
 	patchType := admission.PatchTypeJSONPatch
 	responseReview.Response.PatchType = &patchType
 
-	patchResponse := []map[string]string{{
-		"op":    "add",
-		"path":  "/spec/imagePullSecrets/-",
-		"value": "{\"name\": \"regcredsecret\"}",
-	}}
+	patchResponse := make([]RegCredPatchSpec, 1)
+	patchResponse[0].Op = "add"
+	patchResponse[0].Path = "/spec/imagePullSecrets"
+	patchResponse[0].Value = append(patchResponse[0].Value, make(map[string]string, 1))
+	firstCred := patchResponse[0].Value[0]
+	firstCred["name"] = "regcred"
 
 	responseReview.Response.Patch, err = json.Marshal(&patchResponse)
 	if err != nil {
