@@ -70,7 +70,7 @@ func createSecret(namespace string) error {
 	return nil
 }
 
-func generateResponseReview(req admission.AdmissionReview) (*admission.AdmissionReview, error) {
+func generateResponseReview(req admission.AdmissionReview, mutate bool) (*admission.AdmissionReview, error) {
 	responseReview := admission.AdmissionReview{}
 
 	responseReview.Kind = "AdmissionReview"
@@ -78,14 +78,17 @@ func generateResponseReview(req admission.AdmissionReview) (*admission.Admission
 	responseReview.Response = &admission.AdmissionResponse{}
 	responseReview.Response.UID = req.Request.UID
 	responseReview.Response.Allowed = true
-	patchType := admission.PatchTypeJSONPatch
-	responseReview.Response.PatchType = &patchType
 
-	patch, err := json.Marshal(generatePatchResponse())
-	if err != nil {
-		return nil, err
+	if mutate == true {
+		log.Println("Mutating")
+		patchType := admission.PatchTypeJSONPatch
+		responseReview.Response.PatchType = &patchType
+		patch, err := json.Marshal(generatePatchResponse())
+		if err != nil {
+			return nil, err
+		}
+		responseReview.Response.Patch = patch
 	}
-	responseReview.Response.Patch = patch
 
 	return &responseReview, nil
 }
@@ -115,6 +118,7 @@ func PodHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	log.Println(string(podObject))
 	var pod apiv1.Pod
 	err = json.Unmarshal(podObject, &pod)
 	if err != nil {
@@ -124,16 +128,30 @@ func PodHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Identified target pod %s in namespace %s for UID %s", pod.ObjectMeta.Name, pod.ObjectMeta.Namespace, req.Request.UID)
 
-	log.Printf("Creating secret in namespace %s", pod.ObjectMeta.Namespace)
-	err = createSecret(pod.ObjectMeta.Namespace)
-	if err != nil {
-		log.Printf("Encountered an error creating the secret in %s: %s", pod.ObjectMeta.Namespace, err.Error())
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	namespace := pod.ObjectMeta.Namespace
+	if namespace == "" {
+		namespace = pod.Namespace
 	}
-	log.Printf("Created secret in namespace %s for UID %s", pod.ObjectMeta.Namespace, req.Request.UID)
+	log.Printf("Namespace was: %s", namespace)
+	if namespace != "" {
+		log.Printf("Creating secret in namespace %s", pod.Namespace)
+		err = createSecret(pod.ObjectMeta.Namespace)
+		if err != nil {
+			log.Printf("Encountered an error creating the secret in %s: %s", pod.ObjectMeta.Namespace, err.Error())
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		log.Printf("Created secret in namespace %s for UID %s", pod.ObjectMeta.Namespace, req.Request.UID)
+	}
 
-	responseReview, err := generateResponseReview(req)
+	var responseReview *admission.AdmissionReview
+	if pod.Kind == "Pod" {
+		log.Println("Found a Pod, going to generate a patch response")
+		responseReview, err = generateResponseReview(req, true)
+	} else {
+		responseReview, err = generateResponseReview(req, false)
+	}
+
 	if err != nil {
 		log.Printf("Failed to generate response Review for UID %s", req.Request.UID)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
