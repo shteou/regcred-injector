@@ -67,12 +67,14 @@ func main() {
 	http.Handle("/", r)
 
 	srv := &http.Server{
-		Handler:      loggingHandler,
-		Addr:         "0.0.0.0:8443",
-		TLSConfig:    tlsConf,
-		TLSNextProto: make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
-		WriteTimeout: 15 * time.Second,
-		ReadTimeout:  15 * time.Second,
+		Handler:           loggingHandler,
+		Addr:              "0.0.0.0:8443",
+		TLSConfig:         tlsConf,
+		TLSNextProto:      make(map[string]func(*http.Server, *tls.Conn, http.Handler), 0),
+		WriteTimeout:      30 * time.Second,
+		ReadTimeout:       20 * time.Second,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	log.Fatal(srv.ListenAndServeTLS("certs/regcred-injector-crt.pem", "certs/regcred-injector-key.pem"))
