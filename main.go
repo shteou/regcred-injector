@@ -45,6 +45,8 @@ func main() {
 		log.Fatal("Unable to read DOCKER_PASSWORD environment variable")
 	}
 
+	log.SetOutput(os.Stdout)
+
 	tlsConf = &tls.Config{
 		Certificates:             []tls.Certificate{keyPair},
 		ServerName:               serverName,
