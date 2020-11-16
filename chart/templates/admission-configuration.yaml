@@ -12,9 +12,9 @@ webhooks:
       values: ["regcred-injector"]
   rules:
   - operations: ["CREATE"]
-    apiGroups: ["*"]
-    apiVersions: ["*"]
-    resources: ["pods", "deployments", "statefulsets", "replicasets", "daemonsets"]
+    apiGroups: [""]
+    apiVersions: ["v1"]
+    resources: ["pods"]
     scope: "Namespaced"
   clientConfig:
     service:
