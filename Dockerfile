@@ -14,7 +14,7 @@ COPY k8s k8s
 RUN go build -ldflags="-w -s" main.go
 RUN mv main regcred-injector
 
-FROM busybox:glibc as production
+FROM debian:buster-slim as production
 
 COPY --from=builder /go/src/github.com/shteou/regcred-injector/regcred-injector /usr/bin/regcred-injector
 
