@@ -67,7 +67,7 @@ func createSecret(namespace string, uid types.UID) error {
 		secret.Data[".dockerconfigjson"] = []byte(dockerConfigJSON)
 		_, err = Clientset.CoreV1().Secrets(namespace).Create(context.TODO(), &secret, v1.CreateOptions{})
 		if err != nil {
-			log.Printf("%s: credential creation in %s faied", uid, namespace)
+			log.Printf("%s: credential creation in %s failed", uid, namespace)
 			return err
 		}
 		log.Printf("%s: credential creation in %s succeeded", uid, namespace)
@@ -77,7 +77,9 @@ func createSecret(namespace string, uid types.UID) error {
 	return nil
 }
 
-func generateResponseReview(req admission.AdmissionReview, mutate bool) (*admission.AdmissionReview, error) {
+func generateResponseReview(req admission.AdmissionReview) (*admission.AdmissionReview, error) {
+	log.Printf("%s: Mutating pod with imagePullSecrets", req.Request.UID)
+
 	responseReview := admission.AdmissionReview{}
 
 	responseReview.Kind = "AdmissionReview"
@@ -85,17 +87,13 @@ func generateResponseReview(req admission.AdmissionReview, mutate bool) (*admiss
 	responseReview.Response = &admission.AdmissionResponse{}
 	responseReview.Response.UID = req.Request.UID
 	responseReview.Response.Allowed = true
-
-	if mutate == true {
-		log.Printf("%s: Mutating pod with imagePullSecrets", req.Request.UID)
-		patchType := admission.PatchTypeJSONPatch
-		responseReview.Response.PatchType = &patchType
-		patch, err := json.Marshal(generatePatchResponse())
-		if err != nil {
-			return nil, err
-		}
-		responseReview.Response.Patch = patch
+	patchType := admission.PatchTypeJSONPatch
+	responseReview.Response.PatchType = &patchType
+	patch, err := json.Marshal(generatePatchResponse())
+	if err != nil {
+		return nil, err
 	}
+	responseReview.Response.Patch = patch
 
 	return &responseReview, nil
 }
@@ -118,7 +116,8 @@ func PodHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("%s: received a webhook request", req.Request.UID)
+	namespace := req.Request.Namespace
+	log.Printf("%s: received a webhook request for namespace %s", req.Request.UID, namespace)
 
 	podObject, err := req.Request.Object.MarshalJSON()
 	if err != nil {
@@ -133,28 +132,16 @@ func PodHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	log.Printf("%s: Identified type %s (%s) in namespace %s", req.Request.UID, pod.Kind, pod.ObjectMeta.Name, pod.ObjectMeta.Namespace)
 
-	namespace := pod.ObjectMeta.Namespace
-	if namespace == "" {
-		namespace = pod.Namespace
-	}
-	log.Printf("%s: namespace determined: %s", req.Request.UID, namespace)
-	if namespace != "" {
-		err = createSecret(pod.ObjectMeta.Namespace, req.Request.UID)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	err = createSecret(namespace, req.Request.UID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	var responseReview *admission.AdmissionReview
-	if pod.Kind == "Pod" {
-		log.Printf("%s: generating patch response for pod", req.Request.UID)
-		responseReview, err = generateResponseReview(req, true)
-	} else {
-		responseReview, err = generateResponseReview(req, false)
-	}
+	log.Printf("%s: generating patch response for pod", req.Request.UID)
+	responseReview, err = generateResponseReview(req)
 
 	if err != nil {
 		log.Printf("%s: failed to generate response Review", req.Request.UID)
