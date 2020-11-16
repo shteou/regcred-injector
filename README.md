@@ -10,6 +10,8 @@ an `imagePullSecrets` entry. This is currently limited to adding a single
 Along with mutating the pod, credentials will be created in the target namespace,
 provided they don't already exist.
 
+![Architecture](images/regcred-injector.png)
+
 ## Limitations
 
 regcred-injector does not yet support overriding credentials in existing
