@@ -8,6 +8,8 @@ COPY go.sum .
 RUN go mod download
 
 COPY main.go main.go
+COPY handlers handlers
+COPY k8s k8s
 
 RUN go build -ldflags="-w -s" main.go
 RUN mv main regcred-injector
