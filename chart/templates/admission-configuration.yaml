@@ -14,7 +14,7 @@ webhooks:
   - operations: ["CREATE"]
     apiGroups: ["*"]
     apiVersions: ["*"]
-    resources: ["pods", "deployments", "statefulset", "replicaset", "daemonset"]
+    resources: ["pods", "deployments", "statefulsets", "replicasets", "daemonsets"]
     scope: "Namespaced"
   clientConfig:
     service:
