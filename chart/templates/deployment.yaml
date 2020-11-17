@@ -47,6 +47,8 @@ spec:
               value: {{ include "regcred-injector.fullname" . }}.{{ .Release.Namespace }}.svc.local
             - name: DOCKER_USERNAME
               value: {{ .Values.docker.username }}
+            - name: DOCKER_REGISTRY
+              value: "{{ .Values.docker.registry }}"
             - name: DOCKER_PASSWORD
               valueFrom:
                 secretKeyRef:

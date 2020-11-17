@@ -19,6 +19,7 @@ import (
 var Clientset *kubernetes.Clientset
 var DockerUsername string
 var DockerPassword string
+var DockerRegistry string
 
 func getReview(r *http.Request) (admission.AdmissionReview, error) {
 	var rev admission.AdmissionReview
@@ -57,7 +58,7 @@ func createSecret(namespace string, uid types.UID) error {
 		dockerAuth.Username = DockerUsername
 		dockerAuth.Password = DockerPassword
 		dockerAuth.Auth = base64.StdEncoding.EncodeToString([]byte(DockerUsername + ":" + DockerPassword))
-		dockerConfig.Auths["https://index.docker.io/v1/"] = dockerAuth
+		dockerConfig.Auths[DockerRegistry] = dockerAuth
 
 		dockerConfigJSON, err := json.Marshal(dockerConfig)
 		if err != nil {
