@@ -31,6 +31,11 @@ Installation into a Kubernetes cluster is possible with helm. Required parameter
 
 `helm install --set docker.username=<username>  --set docker.password=<PAT> --set-file cert=certs/regcred-injector-crt.pem --set-file key=certs/regcred-injector-key.pem my-release chart`
 
+Installation with a Scaleway private registry.
+
+`helm install --set docker.username=<accesskey>  --set docker.password=<secretkey> --set docker.registry=rg.fr-par.scw.cloud --set-file cert=certs/regcred-injector-crt.pem --set-file key=certs/regcred-injector-key.pem my-release chart`
+
+
 ## Cert generation
 
 TODO: Add information on how to generate self-signed certs
