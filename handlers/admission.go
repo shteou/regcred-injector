@@ -135,8 +135,7 @@ func PodHandler(w http.ResponseWriter, r *http.Request) {
 
 	err = createSecret(namespace, req.Request.UID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		log.Printf("%s failed to create secret, continuing to mutate: %s", req.Request.UID, err.Error())
 	}
 
 	var responseReview *admission.AdmissionReview
