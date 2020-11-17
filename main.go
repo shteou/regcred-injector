@@ -44,6 +44,10 @@ func main() {
 	if !found {
 		log.Fatal("Unable to read DOCKER_PASSWORD environment variable")
 	}
+	handlers.DockerRegistry, found = os.LookupEnv("DOCKER_REGISTRY")
+	if !found {
+		log.Fatal("Unable to read DOCKER_REGISTRY environment variable")
+	}
 
 	log.SetOutput(os.Stdout)
 
