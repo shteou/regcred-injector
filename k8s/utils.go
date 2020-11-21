@@ -1,9 +1,15 @@
 package k8s
 
-type RegCredPatchSpec struct {
+type CreatePatchSpec struct {
 	Op    string              `json:"op"`
 	Path  string              `json:"path"`
 	Value []map[string]string `json:"value"`
+}
+
+type AppendPatchSpec struct {
+	Op    string            `json:"op"`
+	Path  string            `json:"path"`
+	Value map[string]string `json:"value"`
 }
 
 type DockerAuth struct {
