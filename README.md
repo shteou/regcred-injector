@@ -19,9 +19,6 @@ namespaces. That is, if regcred creates a secret and the registry PAT is
 changed, namespaces will not automatically receive the new credentials and
 they must be manually removed to be updated.
 
-regcred-injector's behaviour is curretly undefined if imagePullSecrets
-is already populated.
-
 regcred-injector has no way to skip injection of credentials, all namespaces
 will receive the registry secrets as pods are created.
 
