@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 
 	"github.com/shteou/regcred-injector/k8s"
 
@@ -30,6 +31,10 @@ func getReview(r *http.Request) (admission.AdmissionReview, error) {
 	}
 
 	return rev, nil
+}
+
+func hasImagePullSecrets(pod apiv1.Pod) bool {
+	return len(pod.Spec.ImagePullSecrets) > 0
 }
 
 func createSecret(namespace string, uid types.UID) error {
@@ -78,7 +83,7 @@ func createSecret(namespace string, uid types.UID) error {
 	return nil
 }
 
-func generateResponseReview(req admission.AdmissionReview) (*admission.AdmissionReview, error) {
+func generateResponseReview(req admission.AdmissionReview, pod apiv1.Pod) (*admission.AdmissionReview, error) {
 	log.Printf("%s: Mutating pod with imagePullSecrets", req.Request.UID)
 
 	responseReview := admission.AdmissionReview{}
@@ -90,22 +95,48 @@ func generateResponseReview(req admission.AdmissionReview) (*admission.Admission
 	responseReview.Response.Allowed = true
 	patchType := admission.PatchTypeJSONPatch
 	responseReview.Response.PatchType = &patchType
-	patch, err := json.Marshal(generatePatchResponse())
+
+	patch, err := generatePatchResponse(pod)
 	if err != nil {
 		return nil, err
 	}
+
 	responseReview.Response.Patch = patch
 
 	return &responseReview, nil
 }
 
-func generatePatchResponse() []k8s.RegCredPatchSpec {
-	patchResponse := make([]k8s.RegCredPatchSpec, 1)
+func generatePatchResponse(pod apiv1.Pod) ([]byte, error) {
+	var patch []byte
+	var err error
+	if hasImagePullSecrets(pod) {
+		patch, err = json.Marshal(generateAppendPatchResponse(len(pod.Spec.ImagePullSecrets)))
+	} else {
+		patch, err = json.Marshal(generateAddPatchResponse())
+	}
+	if err != nil {
+		return nil, err
+	}
+	return patch, nil
+}
+
+func generateAddPatchResponse() []k8s.CreatePatchSpec {
+	patchResponse := make([]k8s.CreatePatchSpec, 1)
 	patchResponse[0].Op = "add"
 	patchResponse[0].Path = "/spec/imagePullSecrets"
 	patchResponse[0].Value = append(patchResponse[0].Value, make(map[string]string, 1))
 	firstCred := patchResponse[0].Value[0]
 	firstCred["name"] = "regcred"
+
+	return patchResponse
+}
+
+func generateAppendPatchResponse(imagePullSecretCount int) []k8s.AppendPatchSpec {
+	patchResponse := make([]k8s.AppendPatchSpec, 1)
+	patchResponse[0].Op = "add"
+	patchResponse[0].Path = "/spec/imagePullSecrets/" + strconv.Itoa(imagePullSecretCount)
+	patchResponse[0].Value = map[string]string{}
+	patchResponse[0].Value["name"] = "regcred"
 
 	return patchResponse
 }
@@ -141,7 +172,7 @@ func PodHandler(w http.ResponseWriter, r *http.Request) {
 
 	var responseReview *admission.AdmissionReview
 	log.Printf("%s: generating patch response for pod", req.Request.UID)
-	responseReview, err = generateResponseReview(req)
+	responseReview, err = generateResponseReview(req, pod)
 
 	if err != nil {
 		log.Printf("%s: failed to generate response Review", req.Request.UID)
