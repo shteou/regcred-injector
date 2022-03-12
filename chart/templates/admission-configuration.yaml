@@ -1,3 +1,6 @@
+{{- $certString := include "regcred-injector.gen-certs" . -}}
+{{- $certList := split "$" $certString -}}
+---
 apiVersion: admissionregistration.k8s.io/v1beta1
 kind: MutatingWebhookConfiguration
 metadata:
@@ -22,6 +25,17 @@ webhooks:
       name: "{{ include "regcred-injector.fullname" . }}"
       path: "/admission"
       port: 8443
-    caBundle: "{{ .Values.cert | b64enc }}"
+    caBundle: {{ $certList._2 }}
   admissionReviewVersions: ["v1beta1"]
   failurePolicy: Ignore
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "regcred-injector.fullname" . }}
+  labels:
+    {{ include "regcred-injector.labels" . | nindent 4 }}
+data:
+  cert: {{ $certList._0 }}
+  key: {{ $certList._1 }}
+  password: {{ .Values.docker.password | b64enc }}
