@@ -37,6 +37,15 @@ func hasImagePullSecrets(pod apiv1.Pod) bool {
 	return len(pod.Spec.ImagePullSecrets) > 0
 }
 
+func jsonEscape(i string) string {
+	b, err := json.Marshal(i)
+	if err != nil {
+		panic(err)
+	}
+	s := string(b)
+	return s[1 : len(s)-1]
+}
+
 func createSecret(namespace string, uid types.UID) error {
 	secrets, err := Clientset.CoreV1().Secrets(namespace).List(context.TODO(), v1.ListOptions{})
 	if err != nil {
@@ -50,36 +59,48 @@ func createSecret(namespace string, uid types.UID) error {
 		}
 	}
 
-	if hasSecret == false {
+	dockerConfig := k8s.DockerConfig{}
+	dockerConfig.Auths = make(map[string]k8s.DockerAuth)
+	dockerAuth := k8s.DockerAuth{}
+	dockerAuth.Username = DockerUsername
+	dockerAuth.Password = DockerPassword
+	dockerAuth.Auth = base64.StdEncoding.EncodeToString([]byte(DockerUsername + ":" + DockerPassword))
+	dockerConfig.Auths[DockerRegistry] = dockerAuth
+
+	dockerConfigJSON, err := json.Marshal(dockerConfig)
+	if err != nil {
+		return err
+	}
+
+	secret := apiv1.Secret{}
+	secret.Type = "kubernetes.io/dockerconfigjson"
+	secret.Name = "regcred"
+	secret.Data = make(map[string][]byte)
+
+	secret.Data[".dockerconfigjson"] = []byte(dockerConfigJSON)
+
+	if !hasSecret {
 		log.Printf("%s: creating credentials in %s", uid, namespace)
 
-		secret := apiv1.Secret{}
-		secret.Type = "kubernetes.io/dockerconfigjson"
-		secret.Name = "regcred"
-		secret.Data = make(map[string][]byte)
-		dockerConfig := k8s.DockerConfig{}
-		dockerConfig.Auths = make(map[string]k8s.DockerAuth)
-		dockerAuth := k8s.DockerAuth{}
-		dockerAuth.Username = DockerUsername
-		dockerAuth.Password = DockerPassword
-		dockerAuth.Auth = base64.StdEncoding.EncodeToString([]byte(DockerUsername + ":" + DockerPassword))
-		dockerConfig.Auths[DockerRegistry] = dockerAuth
-
-		dockerConfigJSON, err := json.Marshal(dockerConfig)
-		if err != nil {
-			return err
-		}
-
-		secret.Data[".dockerconfigjson"] = []byte(dockerConfigJSON)
 		_, err = Clientset.CoreV1().Secrets(namespace).Create(context.TODO(), &secret, v1.CreateOptions{})
 		if err != nil {
 			log.Printf("%s: credential creation in %s failed", uid, namespace)
 			return err
 		}
+
 		log.Printf("%s: credential creation in %s succeeded", uid, namespace)
 	} else {
-		log.Printf("%s: skipping credentials in %s, already exists", uid, namespace)
+		log.Printf("%s: updating credentials in %s", uid, namespace)
+
+		_, err = Clientset.CoreV1().Secrets(namespace).Update(context.TODO(), &secret, v1.UpdateOptions{})
+		if err != nil {
+			log.Printf("%s: credential update in %s failed", uid, namespace)
+			return err
+		}
+
+		log.Printf("%s: credential update in %s succeeded", uid, namespace)
 	}
+
 	return nil
 }
 
