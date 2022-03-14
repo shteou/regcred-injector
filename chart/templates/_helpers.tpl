@@ -62,3 +62,13 @@ Create the name of the service account to use
 {{- default "default" .Values.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{- define "regcred-injector.gen-certs" -}}
+    {{- $ca := genCA (include "regcred-injector.fullname" .) 3650 -}}
+
+    {{- $cn := printf "%s.%s.svc" (include "regcred-injector.fullname" .) .Release.Namespace -}}
+    {{- $san := list $cn -}}
+    {{- $cert := genSignedCert $cn nil $san 3650 $ca -}}
+
+        {{- printf "%s$%s$%s" ($cert.Cert | b64enc) ($cert.Key | b64enc) ($ca.Cert | b64enc) -}}
+{{- end -}}
