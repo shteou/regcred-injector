@@ -37,15 +37,6 @@ func hasImagePullSecrets(pod apiv1.Pod) bool {
 	return len(pod.Spec.ImagePullSecrets) > 0
 }
 
-func jsonEscape(i string) string {
-	b, err := json.Marshal(i)
-	if err != nil {
-		panic(err)
-	}
-	s := string(b)
-	return s[1 : len(s)-1]
-}
-
 func createSecret(namespace string, uid types.UID) error {
 	secrets, err := Clientset.CoreV1().Secrets(namespace).List(context.TODO(), v1.ListOptions{})
 	if err != nil {
