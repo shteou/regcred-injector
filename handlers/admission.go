@@ -53,9 +53,11 @@ func createSecret(namespace string, uid types.UID) error {
 	}
 
 	hasSecret := false
+	existingDockerConfig := ""
 	for i := 0; i < len(secrets.Items); i++ {
 		if secrets.Items[i].ObjectMeta.Name == "regcred" {
 			hasSecret = true
+			existingDockerConfig = string(secrets.Items[i].Data[".dockerconfigjson"])
 		}
 	}
 
@@ -72,33 +74,35 @@ func createSecret(namespace string, uid types.UID) error {
 		return err
 	}
 
-	secret := apiv1.Secret{}
-	secret.Type = "kubernetes.io/dockerconfigjson"
-	secret.Name = "regcred"
-	secret.Data = make(map[string][]byte)
+	newSecret := apiv1.Secret{}
+	newSecret.Type = "kubernetes.io/dockerconfigjson"
+	newSecret.Name = "regcred"
+	newSecret.Data = make(map[string][]byte)
 
-	secret.Data[".dockerconfigjson"] = []byte(dockerConfigJSON)
+	newSecret.Data[".dockerconfigjson"] = []byte(dockerConfigJSON)
 
 	if !hasSecret {
 		log.Printf("%s: creating credentials in %s", uid, namespace)
 
-		_, err = Clientset.CoreV1().Secrets(namespace).Create(context.TODO(), &secret, v1.CreateOptions{})
+		_, err = Clientset.CoreV1().Secrets(namespace).Create(context.TODO(), &newSecret, v1.CreateOptions{})
 		if err != nil {
 			log.Printf("%s: credential creation in %s failed", uid, namespace)
 			return err
 		}
 
 		log.Printf("%s: credential creation in %s succeeded", uid, namespace)
-	} else {
+	} else if existingDockerConfig != string(newSecret.Data[".dockerconfigjson"]) {
 		log.Printf("%s: updating credentials in %s", uid, namespace)
 
-		_, err = Clientset.CoreV1().Secrets(namespace).Update(context.TODO(), &secret, v1.UpdateOptions{})
+		_, err = Clientset.CoreV1().Secrets(namespace).Update(context.TODO(), &newSecret, v1.UpdateOptions{})
 		if err != nil {
 			log.Printf("%s: credential update in %s failed", uid, namespace)
 			return err
 		}
 
 		log.Printf("%s: credential update in %s succeeded", uid, namespace)
+	} else {
+		log.Printf("%s: skipping credentials in %s, already exists", uid, namespace)
 	}
 
 	return nil
