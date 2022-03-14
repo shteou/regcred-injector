@@ -37,10 +37,10 @@ func hasImagePullSecrets(pod apiv1.Pod) bool {
 	return len(pod.Spec.ImagePullSecrets) > 0
 }
 
-func createSecret(namespace string, uid types.UID) error {
+func getExistingSecret(namespace string) (bool, string, error) {
 	secrets, err := Clientset.CoreV1().Secrets(namespace).List(context.TODO(), v1.ListOptions{})
 	if err != nil {
-		return err
+		return false, "", err
 	}
 
 	hasSecret := false
@@ -52,6 +52,10 @@ func createSecret(namespace string, uid types.UID) error {
 		}
 	}
 
+	return hasSecret, existingDockerConfig, nil
+}
+
+func newCredentialsSecret(uid types.UID) (apiv1.Secret, error) {
 	dockerConfig := k8s.DockerConfig{}
 	dockerConfig.Auths = make(map[string]k8s.DockerAuth)
 	dockerAuth := k8s.DockerAuth{}
@@ -62,36 +66,60 @@ func createSecret(namespace string, uid types.UID) error {
 
 	dockerConfigJSON, err := json.Marshal(dockerConfig)
 	if err != nil {
-		return err
+		log.Printf("%s: failed to marshal DockerConfig", uid)
+		return apiv1.Secret{}, err
 	}
 
 	newSecret := apiv1.Secret{}
 	newSecret.Type = "kubernetes.io/dockerconfigjson"
 	newSecret.Name = "regcred"
 	newSecret.Data = make(map[string][]byte)
-
 	newSecret.Data[".dockerconfigjson"] = []byte(dockerConfigJSON)
 
+	return newSecret, nil
+}
+
+func createSecret(namespace string, uid types.UID, newSecret apiv1.Secret) error {
+	log.Printf("%s: creating credentials in %s", uid, namespace)
+
+	_, err := Clientset.CoreV1().Secrets(namespace).Create(context.TODO(), &newSecret, v1.CreateOptions{})
+	if err != nil {
+		log.Printf("%s: credential creation in %s failed", uid, namespace)
+		return err
+	}
+
+	log.Printf("%s: credential creation in %s succeeded", uid, namespace)
+	return err
+}
+
+func updateSecret(namespace string, uid types.UID, newSecret apiv1.Secret) error {
+	log.Printf("%s: updating credentials in %s", uid, namespace)
+
+	_, err := Clientset.CoreV1().Secrets(namespace).Update(context.TODO(), &newSecret, v1.UpdateOptions{})
+	if err != nil {
+		log.Printf("%s: credential update in %s failed", uid, namespace)
+		return err
+	}
+
+	log.Printf("%s: credential update in %s succeeded", uid, namespace)
+	return nil
+}
+
+func createOrUpdateSecret(namespace string, uid types.UID) error {
+	hasSecret, existingDockerConfig, err := getExistingSecret(namespace)
+	if err != nil {
+		return err
+	}
+
+	newSecret, err := newCredentialsSecret(uid)
+	if err != nil {
+		return err
+	}
+
 	if !hasSecret {
-		log.Printf("%s: creating credentials in %s", uid, namespace)
-
-		_, err = Clientset.CoreV1().Secrets(namespace).Create(context.TODO(), &newSecret, v1.CreateOptions{})
-		if err != nil {
-			log.Printf("%s: credential creation in %s failed", uid, namespace)
-			return err
-		}
-
-		log.Printf("%s: credential creation in %s succeeded", uid, namespace)
+		return createSecret(namespace, uid, newSecret)
 	} else if existingDockerConfig != string(newSecret.Data[".dockerconfigjson"]) {
-		log.Printf("%s: updating credentials in %s", uid, namespace)
-
-		_, err = Clientset.CoreV1().Secrets(namespace).Update(context.TODO(), &newSecret, v1.UpdateOptions{})
-		if err != nil {
-			log.Printf("%s: credential update in %s failed", uid, namespace)
-			return err
-		}
-
-		log.Printf("%s: credential update in %s succeeded", uid, namespace)
+		return updateSecret(namespace, uid, newSecret)
 	} else {
 		log.Printf("%s: skipping credentials in %s, already exists", uid, namespace)
 	}
@@ -181,7 +209,7 @@ func PodHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = createSecret(namespace, req.Request.UID)
+	err = createOrUpdateSecret(namespace, req.Request.UID)
 	if err != nil {
 		log.Printf("%s failed to create secret, continuing to mutate: %s", req.Request.UID, err.Error())
 	}
